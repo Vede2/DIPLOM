@@ -992,9 +992,8 @@ def login():
                 session.pop('cart')
             
             flash('Вы успешно вошли!', 'success')
-            if user.is_admin:
-                return redirect(url_for('admin_panel'))
-            return redirect(url_for('index'))
+            flash('Вы успешно вошли!', 'success')
+return redirect(url_for('index'))
         else:
             flash('Неверный email или пароль', 'error')
     
