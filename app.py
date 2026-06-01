@@ -991,9 +991,9 @@ def login():
                 db.session.commit()
                 session.pop('cart')
             
+            
             flash('Вы успешно вошли!', 'success')
-            flash('Вы успешно вошли!', 'success')
-return redirect(url_for('index'))
+            return redirect(url_for('index'))
         else:
             flash('Неверный email или пароль', 'error')
     
