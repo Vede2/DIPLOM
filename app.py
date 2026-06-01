@@ -1280,8 +1280,7 @@ def checkout():
     flash('Заказ №{} успешно оформлен!'.format(order.id), 'success')
     return redirect(url_for('orders'))
 
-@app.route('/orders')
-@login_required
+
 @app.route('/orders')
 @login_required
 def orders():
