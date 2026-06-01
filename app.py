@@ -1282,13 +1282,20 @@ def checkout():
 
 @app.route('/orders')
 @login_required
+@app.route('/orders')
+@login_required
 def orders():
     user_orders = Order.query.filter_by(user_id=current_user.id).order_by(Order.created_at.desc()).all()
     # Расшифровываем персональные данные для отображения
     for order in user_orders:
-        order.delivery_name = decrypt_data(order.delivery_name) or 'Не указано'
-        order.delivery_phone = decrypt_data(order.delivery_phone) or 'Не указано'
-        order.delivery_address = decrypt_data(order.delivery_address) or 'Не указано'
+        try:
+            order.delivery_name = decrypt_data(order.delivery_name) or 'Не указано'
+            order.delivery_phone = decrypt_data(order.delivery_phone) or 'Не указано'
+            order.delivery_address = decrypt_data(order.delivery_address) or 'Не указано'
+        except:
+            order.delivery_name = order.delivery_name or 'Не указано'
+            order.delivery_phone = order.delivery_phone or 'Не указано'
+            order.delivery_address = order.delivery_address or 'Не указано'
     return render_template_string(ORDERS_TEMPLATE, orders=user_orders)
 
 @app.route('/register', methods=['GET', 'POST'])
