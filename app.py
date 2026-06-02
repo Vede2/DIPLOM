@@ -73,9 +73,14 @@ class Order(db.Model):
     total_amount = db.Column(db.Float)
     status = db.Column(db.String(20), default='pending')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    delivery_city = db.Column(db.String(100), default='Красноярск')
+    delivery_street = db.Column(db.String(200))
+    delivery_house = db.Column(db.String(20))
+    delivery_entrance = db.Column(db.String(20))
+    delivery_floor = db.Column(db.String(20))
+    delivery_apartment = db.Column(db.String(20))
     delivery_name = db.Column(db.String(200))
     delivery_phone = db.Column(db.String(20))
-    delivery_address = db.Column(db.Text)
     comment = db.Column(db.Text)
     items = db.relationship('OrderItem', backref='order', lazy=True)
 
@@ -103,6 +108,26 @@ def decrypt_data(encrypted_data):
         except:
             return encrypted_data
     return None
+
+def validate_phone(phone):
+    """Валидация российского номера телефона"""
+    # Удаляем все нецифровые символы
+    digits = re.sub(r'\D', '', phone)
+    
+    # Проверяем форматы: +7XXXXXXXXXX, 8XXXXXXXXXX, 7XXXXXXXXXX
+    if len(digits) == 11 and (digits.startswith('7') or digits.startswith('8')):
+        return True, digits
+    elif len(digits) == 10 and digits.startswith('9'):
+        return True, '7' + digits
+    else:
+        return False, None
+
+def format_phone(phone):
+    """Форматирование номера в читаемый вид"""
+    digits = re.sub(r'\D', '', phone)
+    if len(digits) == 11:
+        return f"+7 ({digits[1:4]}) {digits[4:7]}-{digits[7:9]}-{digits[9:11]}"
+    return phone
 
 # ============ БАЗОВЫЙ HTML ============
 
@@ -237,11 +262,17 @@ BASE_TEMPLATE = '''
         .cart-item { display: flex; align-items: center; gap: 15px; padding: 15px; background: white; border-radius: 15px; margin-bottom: 12px; flex-wrap: wrap; }
         .cart-item img { width: 60px; height: 60px; object-fit: cover; border-radius: 10px; flex-shrink: 0; }
         .cart-item-info { flex: 1; min-width: 150px; }
-        .cart-summary { width: 320px; background: white; padding: 25px; border-radius: 20px; position: sticky; top: 80px; flex-shrink: 0; }
+        .cart-summary { width: 360px; background: white; padding: 25px; border-radius: 20px; position: sticky; top: 80px; flex-shrink: 0; }
         .total-price { font-size: 2rem; font-weight: 700; color: #ff8f00; margin-bottom: 20px; }
         .quantity-input { width: 60px; padding: 8px; border: 2px solid #c8e6c9; border-radius: 15px; text-align: center; min-height: 36px; }
         .checkout-form { margin-top: 15px; }
-        .checkout-form input, .checkout-form textarea { width: 100%; padding: 10px; margin-bottom: 10px; border: 2px solid #c8e6c9; border-radius: 15px; font-family: 'Rubik', sans-serif; font-size: 14px; }
+        .checkout-form input, .checkout-form textarea, .checkout-form select { 
+            width: 100%; padding: 10px; margin-bottom: 10px; border: 2px solid #c8e6c9; 
+            border-radius: 15px; font-family: 'Rubik', sans-serif; font-size: 14px; 
+        }
+        .checkout-form select:disabled { background: #e8e4df; color: #333; }
+        .address-row { display: flex; gap: 10px; }
+        .address-row input { flex: 1; }
         .orders-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin: 30px 0; }
         .order-card { background: white; padding: 25px; border-radius: 20px; display: flex; flex-direction: column; gap: 10px; }
         .order-status { display: inline-block; padding: 6px 12px; border-radius: 15px; font-size: 13px; font-weight: 600; }
@@ -251,9 +282,10 @@ BASE_TEMPLATE = '''
         .status-cancelled { background: #ffcdd2; color: #c62828; }
         .order-total { font-size: 1.4rem; font-weight: 700; color: #ff8f00; }
         .auth-form { max-width: 400px; margin: 50px auto; padding: 30px; background: white; border-radius: 20px; }
+        .auth-form h2 { text-align: center; color: #000; margin-bottom: 25px; }
         .form-group { margin-bottom: 20px; }
         .form-group label { display: block; margin-bottom: 8px; color: #000; font-weight: 500; }
-        .form-group input { width: 100%; padding: 12px 15px; border: 2px solid #c8e6c9; border-radius: 20px; font-size: 15px; }
+        .form-group input, .form-group select { width: 100%; padding: 12px 15px; border: 2px solid #c8e6c9; border-radius: 20px; font-size: 15px; }
         .alert { padding: 15px 20px; margin: 15px 0; border-radius: 15px; font-size: 14px; }
         .alert-success { background: #c8e6c9; color: #2d5a27; }
         .alert-error { background: #ffccbc; color: #bf360c; }
@@ -280,6 +312,7 @@ BASE_TEMPLATE = '''
             .cart-page { flex-direction: column; }
             .cart-summary { width: 100%; position: static; }
             .cart-item { flex-direction: column; text-align: center; }
+            .address-row { flex-direction: column; }
             .footer-content { grid-template-columns: 1fr; text-align: center; }
             .hero-text h1 { font-size: 1.8rem; }
             .btn { min-height: 44px; }
@@ -298,31 +331,25 @@ BASE_TEMPLATE = '''
         <div class="container">
             <a href="/" class="logo">Фермерский</a>
             <div class="nav-links" id="navLinks">
-                <!-- Каталог -->
                 <a href="/catalog" title="Каталог">
                     <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
                 </a>
-                <!-- Корзина -->
                 <a href="/cart" title="Корзина">
                     <svg viewBox="0 0 24 24"><circle cx="8" cy="21" r="2"/><circle cx="20" cy="21" r="2"/><path d="M5.7 6H21l-2.7 8H7.5L5.7 6zM5 3L3.5 1H1v2h1.5L5 7.6V17h14v-2H7l-.3-1h11.6l2.7-8H5z"/></svg>
                 </a>
                 {% if current_user.is_authenticated %}
-                    <!-- Заказы -->
                     <a href="/orders" title="Заказы">
                         <svg viewBox="0 0 24 24"><path d="M19 3h-4.2c-.4-1.2-1.5-2-2.8-2s-2.4.8-2.8 2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7 0c.6 0 1 .4 1 1s-.4 1-1 1-1-.4-1-1 .4-1 1-1zm-2 14l-4-4 1.4-1.4 2.6 2.6 5.6-5.6L17 9l-7 8z"/></svg>
                     </a>
                     {% if current_user.is_admin %}
-                        <!-- Админ -->
                         <a href="/admin" title="Админ">
                             <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
                         </a>
                     {% endif %}
-                    <!-- Выход -->
                     <a href="/logout" title="Выйти">
                         <svg viewBox="0 0 24 24"><path d="M17 7l-1.4 1.4 2.6 2.6H9v2h9.2l-2.6 2.6L17 17l5-5-5-5zM5 5h5V3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h5v-2H5V5z"/></svg>
                     </a>
                 {% else %}
-                    <!-- Вход -->
                     <a href="/login" title="Войти">
                         <svg viewBox="0 0 24 24"><path d="M12 12c2.7 0 4.8-2.1 4.8-4.8S14.7 2.4 12 2.4 7.2 4.5 7.2 7.2 9.3 12 12 12zm0 2.4c-3.2 0-9.6 1.6-9.6 4.8v1.2c0 .7.5 1.2 1.2 1.2h16.8c.7 0 1.2-.5 1.2-1.2v-1.2c0-3.2-6.4-4.8-9.6-4.8z"/></svg>
                     </a>
@@ -362,7 +389,7 @@ BASE_TEMPLATE = '''
                     <h3>Контакты</h3>
                     <p>📞 +7 (999) 123-45-67</p>
                     <p>📧 info@farmshop.ru</p>
-                    <p>📍 д. Фермерская, ул. Центральная, 1</p>
+                    <p>📍 г. Красноярск</p>
                 </div>
             </div>
             <div class="footer-bottom">
@@ -394,6 +421,21 @@ BASE_TEMPLATE = '''
                 }, 800);
             });
         });
+        
+        // Маска для телефона
+        function formatPhoneInput(input) {
+            let value = input.value.replace(/\\D/g, '');
+            if (value.startsWith('8')) value = '7' + value.slice(1);
+            if (value.length > 11) value = value.slice(0, 11);
+            
+            let formatted = '+7';
+            if (value.length > 1) formatted += ' (' + value.slice(1, 4);
+            if (value.length >= 4) formatted += ') ' + value.slice(4, 7);
+            if (value.length >= 7) formatted += '-' + value.slice(7, 9);
+            if (value.length >= 9) formatted += '-' + value.slice(9, 11);
+            
+            input.value = formatted;
+        }
     </script>
 </body>
 </html>
@@ -567,12 +609,31 @@ CART_TEMPLATE = '''
                 {{ "%.0f"|format(total.value) }} ₽
             </div>
             {% if current_user.is_authenticated %}
-                <form action="/checkout" method="POST" class="checkout-form">
+                <form action="/checkout" method="POST" class="checkout-form" onsubmit="return validateCheckoutForm()">
                     <h3 style="margin-bottom: 10px;">Данные для доставки</h3>
+                    
+                    <select disabled>
+                        <option>Красноярск</option>
+                    </select>
+                    
+                    <input type="text" name="street" placeholder="Улица" required>
+                    
+                    <div class="address-row">
+                        <input type="text" name="house" placeholder="Дом" required>
+                        <input type="text" name="entrance" placeholder="Подъезд">
+                    </div>
+                    
+                    <div class="address-row">
+                        <input type="text" name="floor" placeholder="Этаж">
+                        <input type="text" name="apartment" placeholder="Квартира">
+                    </div>
+                    
                     <input type="text" name="full_name" placeholder="ФИО получателя" required>
-                    <input type="tel" name="phone" placeholder="Телефон" required>
-                    <textarea name="address" placeholder="Адрес доставки" rows="3" required></textarea>
+                    
+                    <input type="tel" name="phone" id="phoneInput" placeholder="+7 (___) ___-__-__" required oninput="formatPhoneInput(this)">
+                    
                     <textarea name="comment" placeholder="Комментарий к заказу" rows="2"></textarea>
+                    
                     <button type="submit" class="btn btn-primary" style="width: 100%;">Оформить заказ</button>
                 </form>
             {% else %}
@@ -584,6 +645,25 @@ CART_TEMPLATE = '''
     <p style="text-align: center; padding: 50px;">Корзина пуста</p>
     <div style="text-align: center;"><a href="/catalog" class="btn btn-primary">Перейти в каталог</a></div>
 {% endif %}
+
+<script>
+function validateCheckoutForm() {
+    const phone = document.getElementById('phoneInput').value;
+    const digits = phone.replace(/\\D/g, '');
+    
+    if (digits.length !== 11) {
+        alert('Введите корректный номер телефона в формате +7 (XXX) XXX-XX-XX');
+        return false;
+    }
+    
+    if (!digits.startsWith('7')) {
+        alert('Номер телефона должен начинаться с +7');
+        return false;
+    }
+    
+    return true;
+}
+</script>
 {% endblock %}
 '''
 
@@ -648,7 +728,8 @@ ORDERS_TEMPLATE = '''
                 <h3>Заказ №{{ order.id }}</h3>
                 <p style="font-size: 13px; color: #333;">{{ order.created_at.strftime('%d.%m.%Y %H:%M') }}</p>
                 <p style="font-size: 13px; color: #333;">Получатель: {{ order.delivery_name or 'Не указано' }}</p>
-                <p style="font-size: 13px; color: #333;">Адрес: {{ order.delivery_address or 'Не указано' }}</p>
+                <p style="font-size: 13px; color: #333;">Город: {{ order.delivery_city or 'Красноярск' }}</p>
+                <p style="font-size: 13px; color: #333;">Адрес: {{ order.delivery_street or '' }} {{ order.delivery_house or '' }} {{ order.delivery_apartment or '' }}</p>
                 <p style="font-size: 13px; color: #333;">Телефон: {{ order.delivery_phone or 'Не указано' }}</p>
                 {% if order.status == 'pending' %}
                     <span class="order-status status-pending">В обработке</span>
@@ -854,16 +935,31 @@ def checkout():
     
     full_name = request.form.get('full_name', '')
     phone = request.form.get('phone', '')
-    address = request.form.get('address', '')
+    street = request.form.get('street', '')
+    house = request.form.get('house', '')
+    entrance = request.form.get('entrance', '')
+    floor = request.form.get('floor', '')
+    apartment = request.form.get('apartment', '')
     comment = request.form.get('comment', '')
+    
+    # Валидация телефона
+    is_valid, formatted_phone = validate_phone(phone)
+    if not is_valid:
+        flash('Неверный формат телефона! Введите номер в формате +7 (XXX) XXX-XX-XX', 'error')
+        return redirect(url_for('cart'))
     
     total = sum(item.product.price * item.quantity for item in cart_items)
     order = Order(
         user_id=current_user.id,
         total_amount=total,
+        delivery_city='Красноярск',
+        delivery_street=encrypt_data(street),
+        delivery_house=encrypt_data(house),
+        delivery_entrance=encrypt_data(entrance) if entrance else None,
+        delivery_floor=encrypt_data(floor) if floor else None,
+        delivery_apartment=encrypt_data(apartment) if apartment else None,
         delivery_name=encrypt_data(full_name),
-        delivery_phone=encrypt_data(phone),
-        delivery_address=encrypt_data(address),
+        delivery_phone=encrypt_data(format_phone(formatted_phone)),
         comment=encrypt_data(comment) if comment else None
     )
     db.session.add(order)
@@ -893,7 +989,9 @@ def orders():
         try:
             order.delivery_name = decrypt_data(order.delivery_name) or 'Не указано'
             order.delivery_phone = decrypt_data(order.delivery_phone) or 'Не указано'
-            order.delivery_address = decrypt_data(order.delivery_address) or 'Не указано'
+            order.delivery_street = decrypt_data(order.delivery_street) or ''
+            order.delivery_house = decrypt_data(order.delivery_house) or ''
+            order.delivery_apartment = decrypt_data(order.delivery_apartment) or ''
         except:
             pass
     return render_template_string(ORDERS_TEMPLATE, orders=user_orders)
@@ -990,7 +1088,6 @@ def login():
                         db.session.add(cart_item)
                 db.session.commit()
                 session.pop('cart')
-            
             
             flash('Вы успешно вошли!', 'success')
             return redirect(url_for('index'))
