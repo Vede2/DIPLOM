@@ -387,9 +387,9 @@ BASE_TEMPLATE = '''
                 </div>
                 <div class="footer-section">
                     <h3>Контакты</h3>
-                    <p>📞 +7 (999) 123-45-67</p>
-                    <p>📧 info@farmshop.ru</p>
-                    <p>📍 г. Красноярск</p>
+                    <p> +7 (902) 956-55-29</p>
+                    <p> info@farmshop.ru</p>
+                    <p> г. Красноярск</p>
                 </div>
             </div>
             <div class="footer-bottom">
